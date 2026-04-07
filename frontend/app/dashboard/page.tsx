@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Head from "next/head";
 
+// Dynamic API base for both mobile and desktop matching exact window hostname
 const API_BASE = typeof window !== 'undefined' 
   ? `http://${window.location.hostname}:8000`
   : 'http://localhost:8000';
@@ -14,6 +15,10 @@ type WorkerData = {
   zone: string;
   is_active: boolean;
   latest_session_status: string | null;
+  heart_rate: number | null;
+  oxygen_level: number | null;
+  temperature: number | null;
+  vitals_status: string | null;
 };
 
 type SessionData = {
@@ -83,7 +88,7 @@ export default function Dashboard() {
       await fetch(`${API_BASE}/api/worker/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: regName, worker_id: regPhone, zone: "Main Zone" }),
+        body: JSON.stringify({ name: regName, worker_id: regPhone.trim().toLowerCase(), zone: "Main Zone" }),
       });
       setRegName("");
       setRegPhone("");
@@ -98,7 +103,7 @@ export default function Dashboard() {
       await fetch(`${API_BASE}/api/session/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ worker_id }),
+        body: JSON.stringify({ worker_id: worker_id.trim().toLowerCase() }),
       });
       fetchData();
     } catch (e) {
@@ -124,7 +129,6 @@ export default function Dashboard() {
     return "";
   };
 
-  // Compute counts
   const safeCount = workers.filter(w => w.latest_session_status === 'RESPONDED' || w.latest_session_status === 'SAFE').length;
   const warningCount = workers.filter(w => w.latest_session_status === 'YELLOW').length;
   const criticalCount = workers.filter(w => w.latest_session_status === 'RED').length;
@@ -132,23 +136,23 @@ export default function Dashboard() {
   return (
     <>
       <title>Control Room | SafeDepth</title>
-      <div style={{ backgroundColor: '#0B0E14', minHeight: '100vh', paddingBottom: '40px' }}>
+      <div style={{ backgroundColor: 'var(--bg-darker)', minHeight: '100vh', paddingBottom: '40px' }}>
         
         {/* HEADER */}
-        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '24px 32px', borderBottom: '1px solid var(--border-subtle)', backgroundColor: '#11151E' }}>
+        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderBottom: '1px solid var(--border-subtle)', backgroundColor: 'var(--bg-card)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <h1 style={{ fontSize: '24px', fontWeight: 900, color: 'var(--text-main)', letterSpacing: '1px' }}>
+            <h1 style={{ fontSize: '20px', fontWeight: 600, color: 'var(--text-main)', letterSpacing: '0.5px' }}>
               SAFEDEPTH 
-              <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: '12px' }}>| SUPERVISOR CONTROL ROOM</span>
+              <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: '12px' }}>| CONTROL ROOM</span>
             </h1>
           </div>
-          <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-            <div style={{ display: 'flex', gap: '10px' }}>
+          <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '12px' }}>
               <span className="status-badge SAFE">SAFE: {safeCount}</span>
               <span className="status-badge YELLOW">WARNING: {warningCount}</span>
               <span className="status-badge RED">CRITICAL: {criticalCount}</span>
             </div>
-            <div style={{ fontFamily: 'monospace', fontSize: '20px', color: 'var(--primary-accent)', fontWeight: 'bold' }}>
+            <div style={{ fontFamily: 'monospace', fontSize: '16px', color: 'var(--text-muted)' }}>
               {currentTime}
             </div>
           </div>
@@ -159,13 +163,30 @@ export default function Dashboard() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
             
             <div className="card">
-              <h2 style={{ marginBottom: '20px', color: 'var(--text-muted)', fontSize: '18px', textTransform: 'uppercase' }}>Active Field Workers</h2>
+              <h2 style={{ marginBottom: '16px', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Field Workers</h2>
               <div>
                 {workers.map(w => (
-                  <div key={w.worker_id} className={`worker-card ${getWorkerCardClass(w.latest_session_status)}`}>
+                  <div key={w.worker_id} className={`worker-card ${getWorkerCardClass(w.latest_session_status)} ${w.vitals_status === 'CRITICAL' ? 'status-red' : ''}`}>
                     <div style={{ flex: 1 }}>
-                      <h3 style={{ fontSize: '18px', marginBottom: '4px' }}>{w.name} <span style={{fontSize:'12px', color:'var(--text-muted)', fontWeight:'normal'}}>- Zone: {w.zone}</span></h3>
-                      <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: 0 }}>ID: {w.worker_id}</p>
+                      <h3 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '2px', color: 'var(--text-main)' }}>{w.name}</h3>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '13px', margin: 0 }}>ID: {w.worker_id} • Zone: {w.zone}</p>
+                      
+                      <div style={{ display: 'flex', gap: '12px', marginTop: '8px', fontSize: '12px', alignItems: 'center' }}>
+                        <span style={{ color: w.heart_rate && (w.heart_rate > 120 || w.heart_rate < 50) ? 'var(--status-red)' : 'var(--text-main)' }}>
+                          Heart Rate: {w.heart_rate ?? '--'} BPM
+                        </span>
+                        <span style={{ color: w.oxygen_level && w.oxygen_level < 90 ? 'var(--status-red)' : 'var(--text-main)' }}>
+                          Oxygen: {w.oxygen_level ?? '--'}%
+                        </span>
+                        <span style={{ color: w.temperature && w.temperature > 38.5 ? 'var(--status-red)' : 'var(--text-main)' }}>
+                          Temp: {w.temperature ?? '--'}°C
+                        </span>
+                        {w.vitals_status && (
+                          <span className={`status-badge ${w.vitals_status}`} style={{ padding: '2px 6px', fontSize: '10px' }}>
+                            {w.vitals_status === 'CRITICAL' ? '⚠ CRITICAL VITALS' : w.vitals_status}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div style={{ width: '120px', textAlign: 'center' }}>
                       {w.latest_session_status ? (
@@ -179,6 +200,7 @@ export default function Dashboard() {
                     <div style={{ marginLeft: '16px' }}>
                       <button 
                          className="btn-primary" 
+                         style={{ padding: '6px 12px', fontSize: '13px' }}
                          onClick={() => handleSendCheck(w.worker_id)}
                          disabled={w.latest_session_status === 'PENDING' || w.latest_session_status === 'YELLOW' || w.latest_session_status === 'RED'}
                       >
@@ -188,20 +210,20 @@ export default function Dashboard() {
                   </div>
                 ))}
                 {workers.length === 0 && (
-                  <p style={{ color: "var(--text-muted)", textAlign: "center", padding: '20px' }}>No workers registered.</p>
+                  <p style={{ color: "var(--text-muted)", textAlign: "center", padding: '20px', fontSize: '14px' }}>No workers registered.</p>
                 )}
               </div>
             </div>
 
             <div className="card">
-              <h2 style={{ marginBottom: '20px', color: 'var(--text-muted)', fontSize: '18px', textTransform: 'uppercase' }}>Active Safety Sessions</h2>
-              <div className="table-container">
-                <table>
+              <h2 style={{ marginBottom: '16px', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Active Safety Sessions</h2>
+              <div style={{ width: '100%', overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
                   <thead>
                     <tr>
-                      <th>Worker</th>
-                      <th>Status</th>
-                      <th>Time Elapsed</th>
+                      <th style={{ padding: '12px', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 500 }}>Worker</th>
+                      <th style={{ padding: '12px', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 500 }}>Status</th>
+                      <th style={{ padding: '12px', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontWeight: 500 }}>Time Elapsed</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -209,18 +231,18 @@ export default function Dashboard() {
                       const minutesElapsed = Math.floor((new Date().getTime() - new Date(s.created_at + 'Z').getTime()) / 60000);
                       return (
                       <tr key={s.id}>
-                        <td style={{ fontWeight: 600 }}>{s.worker_name}</td>
-                        <td>
+                        <td style={{ padding: '12px', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-main)' }}>{s.worker_name}</td>
+                        <td style={{ padding: '12px', borderBottom: '1px solid var(--border-subtle)' }}>
                           <span className={`status-badge ${s.status}`}>
                              {s.status}
                           </span>
                         </td>
-                        <td style={{ color: "var(--text-muted)" }}>{minutesElapsed} min ago</td>
+                        <td style={{ padding: '12px', borderBottom: '1px solid var(--border-subtle)', color: "var(--text-muted)" }}>{minutesElapsed} min ago</td>
                       </tr>
                     )})}
                     {sessions.length === 0 && (
                       <tr>
-                        <td colSpan={3} style={{ textAlign: "center", color: "var(--text-muted)", padding: "20px" }}>No active sessions in progress.</td>
+                        <td colSpan={3} style={{ textAlign: "center", color: "var(--text-muted)", padding: "32px", fontSize: '14px' }}>No active sessions in progress.</td>
                       </tr>
                     )}
                   </tbody>
@@ -233,8 +255,8 @@ export default function Dashboard() {
           {/* Sidebar */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
             
-            <div className="card" style={{ borderColor: alerts.length > 0 ? "var(--status-red)" : "var(--border-subtle)" }}>
-              <h2 style={{ color: alerts.length > 0 ? "var(--status-red)" : "var(--text-muted)", fontSize: '18px', textTransform: 'uppercase', marginBottom: '16px' }}>
+            <div className="card">
+              <h2 style={{ marginBottom: '16px', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Incident Alerts
               </h2>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -242,12 +264,12 @@ export default function Dashboard() {
                   const minutesAgo = Math.floor((new Date().getTime() - new Date(a.timestamp + 'Z').getTime()) / 60000);
                   const isRed = a.alert_type === 'RED_CRITICAL' || a.alert_type === 'EMERGENCY';
                   return (
-                  <div key={a.id} className="alert-item" style={{ borderLeft: `4px solid ${isRed ? 'var(--status-red)' : 'var(--status-yellow)'}`}}>
+                  <div key={a.id} className="alert-item" style={{ borderLeft: `3px solid ${isRed ? 'var(--status-red)' : 'var(--status-yellow)'}`}}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <div>
-                        <h4 style={{ margin: 0 }}>{a.worker_name}</h4>
-                        <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: 'var(--text-muted)' }}>{minutesAgo} min ago</p>
-                        <span className={`status-badge ${a.alert_type}`} style={{ marginTop: '8px' }}>
+                        <h4 style={{ margin: 0, fontSize: '14px', color: 'var(--text-main)' }}>{a.worker_name}</h4>
+                        <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: 'var(--text-muted)' }}>{minutesAgo} min ago</p>
+                        <span className={`status-badge ${a.alert_type}`} style={{ marginTop: '8px', fontSize: '11px' }}>
                            {a.alert_type.replace('_', ' ')}
                         </span>
                       </div>
@@ -258,13 +280,15 @@ export default function Dashboard() {
                   </div>
                 )})}
                 {alerts.length === 0 && (
-                  <p style={{ color: "var(--text-muted)", textAlign: "center", padding: '20px 0' }}>All clear. No unresolved alerts.</p>
+                  <div style={{ padding: '32px 0', textAlign: 'center' }}>
+                    <p style={{ color: "var(--text-muted)", fontSize: '14px' }}>No unresolved alerts.</p>
+                  </div>
                 )}
               </div>
             </div>
 
             <div className="card">
-              <h2 style={{ marginBottom: '16px', color: 'var(--text-muted)', fontSize: '18px', textTransform: 'uppercase' }}>Add Worker</h2>
+              <h2 style={{ marginBottom: '16px', color: 'var(--text-muted)', fontSize: '14px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Register Worker</h2>
               <form onSubmit={handleRegisterWorker}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <input 
@@ -276,12 +300,12 @@ export default function Dashboard() {
                   />
                   <input 
                     type="tel" 
-                    placeholder="Phone Number (ID)" 
+                    placeholder="Worker ID / Phone" 
                     value={regPhone} 
                     onChange={(e) => setRegPhone(e.target.value)} 
                     required
                   />
-                  <button type="submit" className="btn-primary" style={{ marginTop: '4px' }}>Register</button>
+                  <button type="submit" className="btn-primary" style={{ marginTop: '4px' }}>Submit</button>
                 </div>
               </form>
             </div>

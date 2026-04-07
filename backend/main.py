@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, Float
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from pydantic import BaseModel
 from typing import List, Optional
@@ -23,6 +23,10 @@ class Worker(Base):
     zone = Column(String)
     is_active = Column(Boolean, default=False)
     checkin_time = Column(DateTime, nullable=True)
+    heart_rate = Column(Integer, nullable=True)
+    oxygen_level = Column(Integer, nullable=True)
+    temperature = Column(Float, nullable=True)
+    vitals_status = Column(String, default="NORMAL")
 
 class SafetySession(Base):
     __tablename__ = "safety_sessions"
@@ -57,6 +61,11 @@ class WorkerCreate(BaseModel):
 class SessionCreate(BaseModel):
     worker_id: str
     
+class VitalsData(BaseModel):
+    heart_rate: int
+    oxygen_level: int
+    temperature: float
+
 class WorkerResponse(BaseModel):
     id: int
     name: str
@@ -64,6 +73,10 @@ class WorkerResponse(BaseModel):
     zone: str
     is_active: bool
     checkin_time: Optional[datetime.datetime]
+    heart_rate: Optional[int] = None
+    oxygen_level: Optional[int] = None
+    temperature: Optional[float] = None
+    vitals_status: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -236,7 +249,11 @@ def get_all_workers(db: Session = Depends(get_db)):
             "zone": w.zone,
             "is_active": w.is_active,
             "checkin_time": w.checkin_time,
-            "latest_session_status": status
+            "latest_session_status": status,
+            "heart_rate": w.heart_rate,
+            "oxygen_level": w.oxygen_level,
+            "temperature": w.temperature,
+            "vitals_status": w.vitals_status
         }
         result.append(worker_dict)
     return result
@@ -305,4 +322,35 @@ def checkout_worker(worker_id: str, db: Session = Depends(get_db)):
         worker.is_active = False
         db.commit()
     return {"status": "success"}
- 
+
+@app.post("/api/vitals/{worker_id}", response_model=WorkerResponse)
+def update_vitals(worker_id: str, vitals: VitalsData, db: Session = Depends(get_db)):
+    worker = db.query(Worker).filter(Worker.worker_id == worker_id).first()
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker not found")
+        
+    worker.heart_rate = vitals.heart_rate
+    worker.oxygen_level = vitals.oxygen_level
+    worker.temperature = vitals.temperature
+    
+    # Auto classify vitals_status
+    if vitals.heart_rate > 120 or vitals.heart_rate < 50 or vitals.oxygen_level < 90 or vitals.temperature > 38.5:
+        worker.vitals_status = "CRITICAL"
+        # automatically create EMERGENCY alert
+        alert = Alert(
+            worker_id=worker.worker_id,
+            worker_name=worker.name,
+            zone=worker.zone,
+            alert_type="EMERGENCY",
+            timestamp=datetime.datetime.utcnow(),
+            resolved=False
+        )
+        db.add(alert)
+    elif vitals.heart_rate > 100 or (90 <= vitals.oxygen_level <= 95) or (37.5 <= vitals.temperature <= 38.5):
+        worker.vitals_status = "WARNING"
+    else:
+        worker.vitals_status = "NORMAL"
+
+    db.commit()
+    db.refresh(worker)
+    return worker
