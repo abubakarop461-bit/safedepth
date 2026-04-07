@@ -305,3 +305,4 @@ def checkout_worker(worker_id: str, db: Session = Depends(get_db)):
         worker.is_active = False
         db.commit()
     return {"status": "success"}
+ 
