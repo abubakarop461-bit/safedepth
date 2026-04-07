@@ -3,10 +3,7 @@
 import { useState, useEffect } from "react";
 import Head from "next/head";
 
-// Dynamic API logic correctly binds to host dynamically.
-const API_BASE = typeof window !== 'undefined' 
-  ? `http://${window.location.hostname}:8000`
-  : 'http://localhost:8000';
+const API_URL = "http://10.210.214.145:8000/api";
 
 type SessionData = {
   id: number;
@@ -38,14 +35,10 @@ export default function WorkerTerminal() {
   const pollSession = async () => {
     if (!isIdentified || !workerPhone || showResponded) return;
 
-    // Properly trimmed and lowercased matching ID
     const queryId = workerPhone.trim().toLowerCase();
-    
-    // Debugging active polling call against expected exact worker identity.
-    console.log(`Polling pending session for worker_id: "${queryId}"`);
 
     try {
-      const res = await fetch(`${API_BASE}/api/session/pending/${queryId}`);
+      const res = await fetch(`${API_URL}/session/pending/${queryId}`);
       if (res.ok) {
         const data = await res.json();
         if (data && data.status === "PENDING") {
@@ -53,6 +46,8 @@ export default function WorkerTerminal() {
         } else {
           setPendingSession(null);
         }
+      } else {
+        setPendingSession(null);
       }
     } catch (e) {
       console.error("Polling error:", e);
@@ -80,7 +75,7 @@ export default function WorkerTerminal() {
 
       setVitals({ heart_rate: hr, oxygen: ox, temperature: temp });
 
-      fetch(`${API_BASE}/api/vitals/${queryId}`, {
+      fetch(`${API_URL}/vitals/${queryId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ heart_rate: hr, oxygen_level: ox, temperature: temp })
@@ -92,15 +87,15 @@ export default function WorkerTerminal() {
     return () => clearInterval(vitalsInterval);
   }, [isIdentified, workerPhone]);
 
-  // Handle vitals critical + pending session
+  // Handle vitals critical
   useEffect(() => {
-    if (pendingSession && vitals) {
+    if (vitals) {
       const isCritical = vitals.heart_rate > 120 || vitals.heart_rate < 50 || vitals.oxygen < 90 || vitals.temperature > 38.5;
       if (isCritical) {
          handleEmergency();
       }
     }
-  }, [pendingSession, vitals]);
+  }, [vitals]);
 
   useEffect(() => {
     let clockInterval: NodeJS.Timeout;
@@ -132,9 +127,7 @@ export default function WorkerTerminal() {
     e.preventDefault();
     if (workerPhone.trim().length > 0) {
       const cleanedId = workerPhone.trim().toLowerCase();
-      // Store both cleaned string & an object locally
       localStorage.setItem('worker_id', cleanedId);
-      localStorage.setItem('worker_object', JSON.stringify({ worker_id: cleanedId, original_input: workerPhone }));
       setWorkerPhone(cleanedId);
       setIsIdentified(true);
     }
@@ -143,9 +136,10 @@ export default function WorkerTerminal() {
   const handleRespondSafe = async () => {
     if (!pendingSession) return;
     try {
-       await fetch(`${API_BASE}/api/session/respond/${pendingSession.id}`, {
+       const res = await fetch(`${API_URL}/session/respond/${pendingSession.id}`, {
          method: "POST"
        });
+       if (!res.ok) throw new Error("Failed to respond to session");
        setShowResponded(true);
        setPendingSession(null);
        
@@ -159,17 +153,23 @@ export default function WorkerTerminal() {
   };
 
   const handleEmergency = async () => {
-    const workerId = localStorage.getItem('worker_id');
-    if (!workerId) {
+    const workerId = localStorage.getItem('worker_id') || workerPhone;
+    if (!workerId || workerId.trim() === "") {
       alert("Please check in first");
       return;
     }
+    const cleanId = workerId.trim().toLowerCase();
     try {
-      await fetch(`${API_BASE}/api/emergency/${workerId.trim().toLowerCase()}`, { method: "POST" });
-      setEmergencyMessage("EMERGENCY SIGNAL SENT");
-      setTimeout(() => setEmergencyMessage(null), 5000);
+      const response = await fetch(`${API_URL}/emergency/${cleanId}`, { method: "POST" });
+      if (response.ok) {
+        setEmergencyMessage("EMERGENCY SIGNAL SENT");
+        setTimeout(() => setEmergencyMessage(null), 5000);
+      } else {
+        throw new Error(`Server returned ${response.status}`);
+      }
     } catch (err) {
       console.error("Error calling emergency:", err);
+      // Only show SIGNAL SEND FAILED if it was a real failure.
       setEmergencyMessage("SIGNAL SEND FAILED");
       setTimeout(() => setEmergencyMessage(null), 5000);
     }
@@ -239,7 +239,7 @@ export default function WorkerTerminal() {
              Please acknowledge check-in
            </p>
 
-           <button className="giant-btn safe" onClick={handleRespondSafe}>
+           <button className="giant-btn safe" onClick={handleRespondSafe} style={{ marginBottom: "24px" }}>
               I'M SAFE
            </button>
         </div>
@@ -253,15 +253,15 @@ export default function WorkerTerminal() {
 
         {vitals && (
              <div style={{ display: 'flex', gap: '16px', margin: '24px auto 0 auto', backgroundColor: 'var(--bg-card)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-subtle)' }}>
-               <div style={{ textAlign: 'center' }}>
+               <div style={{ textAlign: 'center', flex: 1 }}>
                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Heart Rate</div>
                  <div style={{ fontSize: '18px', fontWeight: 600 }}>{vitals.heart_rate} BPM</div>
                </div>
-               <div style={{ textAlign: 'center' }}>
+               <div style={{ textAlign: 'center', flex: 1 }}>
                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Oxygen</div>
                  <div style={{ fontSize: '18px', fontWeight: 600 }}>{vitals.oxygen}%</div>
                </div>
-               <div style={{ textAlign: 'center' }}>
+               <div style={{ textAlign: 'center', flex: 1 }}>
                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Temp</div>
                  <div style={{ fontSize: '18px', fontWeight: 600 }}>{vitals.temperature}°C</div>
                </div>
@@ -293,21 +293,21 @@ export default function WorkerTerminal() {
            <h2 style={{ color: 'var(--text-main)', fontSize: '16px', fontWeight: 600, marginTop: '48px', letterSpacing: '0.5px' }}>
              MONITORING ACTIVE
            </h2>
-           <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '8px' }}>
-             Awaiting supervisor check
+           <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '8px', textAlign: 'center' }}>
+             Waiting for check request...
            </p>
 
            {vitals && (
              <div style={{ display: 'flex', gap: '16px', marginTop: '24px', backgroundColor: 'var(--bg-card)', padding: '12px 24px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-subtle)' }}>
-               <div style={{ textAlign: 'center' }}>
+               <div style={{ textAlign: 'center', flex: 1 }}>
                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Heart Rate</div>
                  <div style={{ fontSize: '18px', fontWeight: 600, color: vitals.heart_rate > 120 || vitals.heart_rate < 50 ? 'var(--status-red)' : 'inherit' }}>{vitals.heart_rate} BPM</div>
                </div>
-               <div style={{ textAlign: 'center' }}>
+               <div style={{ textAlign: 'center', flex: 1 }}>
                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Oxygen</div>
                  <div style={{ fontSize: '18px', fontWeight: 600, color: vitals.oxygen < 90 ? 'var(--status-red)' : 'inherit' }}>{vitals.oxygen}%</div>
                </div>
-               <div style={{ textAlign: 'center' }}>
+               <div style={{ textAlign: 'center', flex: 1 }}>
                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Temp</div>
                  <div style={{ fontSize: '18px', fontWeight: 600, color: vitals.temperature > 38.5 ? 'var(--status-red)' : 'inherit' }}>{vitals.temperature}°C</div>
                </div>
@@ -321,10 +321,10 @@ export default function WorkerTerminal() {
         )}
         {/* Persistent Emergency Area */}
         <button className="giant-btn emergency" onClick={handleEmergency} style={{ marginTop: 'auto' }}>
-          EMERGENCY
+          🚨 EMERGENCY
         </button>
 
       </div>
-    </>
-  );
+    );
+  }
 }
